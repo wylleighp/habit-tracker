@@ -1,285 +1,352 @@
-import React, { useState, useEffect } from 'react';
-
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  StatusBar,
-} from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-//Acts like permanent storage (similar to localStorage)
+  TextInput,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-//Data survives app restarts
+const STORAGE_KEY = "@habit_tracker_data";
 
-// Storage key for AsyncStorage
-const STORAGE_KEY = '@habit_tracker_data';
-//This is just a name used to store data. ... Save my habit data under this label.”
-// Initial habits data
+// Default habits (used on first run, or if storage was cleared)
 const INITIAL_HABITS = [
-  { id: '1', name: '💧 Drink Water', description: 'Drink 8 glasses', completed: false },
-  { id: '2', name: '🏃 Exercise', description: '30 minutes workout', completed: false },
-  { id: '3', name: '📚 Read', description: 'Read for 20 minutes', completed: false },
-  { id: '4', name: '🧘 Meditate', description: '10 minutes meditation', completed: false },
-  { id: '5', name: '🥗 Eat Healthy', description: 'Include vegetables', completed: false },
-  
-
+  { id: "1", name: "Drink Water", description: "Drink 8 glasses", completed: false },
+  { id: "2", name: "Exercise", description: "30 minutes workout", completed: false },
+  { id: "3", name: "Read", description: "Read for 20 minutes", completed: false },
+  { id: "4", name: "Meditate", description: "10 minutes meditation", completed: false },
+  { id: "5", name: "Eat Healthy", description: "Include vegetables", completed: false },
 ];
 
 export default function App() {
-  // State: List of habits
-  //useState → stores data that changes (habits, date)
-
   const [habits, setHabits] = useState(INITIAL_HABITS);
-  
-  // State: Current date
-  const [currentDate, setCurrentDate] = useState('');
+  const [currentDate, setCurrentDate] = useState("");
 
-  // Effect: Load saved data when app starts
-  //useEffect → runs code when the app starts or when data changes
+  // New habit form state
+  const [newHabitName, setNewHabitName] = useState("");
+  const [newHabitDesc, setNewHabitDesc] = useState("");
+  const [showManager, setShowManager] = useState(true);
+
   useEffect(() => {
     loadHabits();
     updateDate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Effect: Save data whenever habits change
   useEffect(() => {
     saveHabits();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [habits]);
 
-  // Function: Format and update current date
   const updateDate = () => {
     const now = new Date();
-    const options = { 
-      weekday: 'long', 
-      year: 'numeric', 
-      month: 'long', 
-      day: 'numeric' 
-    };
-    setCurrentDate(now.toLocaleDateString('en-US', options));
+    const options = { weekday: "long", year: "numeric", month: "long", day: "numeric" };
+    setCurrentDate(now.toLocaleDateString("en-US", options));
   };
-
-  // Function: Load habits from AsyncStorage
-  //loadHabits: loadHabits looks at the saved date. If the saved date is "Yesterday" but the phone says it's "Today," the app says, "Wait, it's a new day! Reset all the checkboxes to 'false' so the user can start over."
 
   const loadHabits = async () => {
     try {
-      //await AsyncStorage.getItem(STORAGE_KEY);;
       const savedData = await AsyncStorage.getItem(STORAGE_KEY);
-      // Get the data that was saved under the name @habit_tracker_data.
-      if (savedData !== null) {
-        const { habits: savedHabits, date: savedDate } = JSON.parse(savedData);
-        
-        // Check if it's a new day
-        // This is a clever way to handle daily resets without a backend. It compares the date string 
-        //saved in storage to the current date. If they don't match, it maps through the habits and forces 
-        //completed: false before setting the state.
-        const today = new Date().toDateString();
-        if ((savedDate) === today) {
-          // Same day, load saved habits
-          setHabits(savedHabits);
-        } else {
-          // New day, reset all habits to incomplete
-         // We use .map() because it returns a new array. Inside, we use the spread operator (...habit) 
-         //to create a shallow copy of the object and overwrite just the completed property. 
-         //This ensures React detects the change and triggers a re-render.
-          const resetHabits = savedHabits.map(habit => ({
-            ...habit,
-            completed: false
-          }));
-          setHabits(resetHabits);
-        }
+
+      // First run
+      if (!savedData) {
+        setHabits(INITIAL_HABITS);
+        return;
       }
+
+      const parsed = JSON.parse(savedData);
+      const savedHabits = Array.isArray(parsed?.habits) ? parsed.habits : INITIAL_HABITS;
+      const savedDate = parsed?.date;
+
+      const today = new Date().toDateString();
+
+      // Same day → keep completion states
+      if (savedDate === today) {
+        setHabits(savedHabits);
+        return;
+      }
+
+      // New day → reset completion states, but keep the habit list
+      const resetHabits = savedHabits.map((h) => ({ ...h, completed: false }));
+      setHabits(resetHabits);
     } catch (error) {
-      console.error('Error loading habits:', error);
+      console.error("Error loading habits:", error);
+      // Safe fallback
+      setHabits(INITIAL_HABITS);
     }
   };
 
-  // Function: Save habits to AsyncStorage
-  //saveHabits: It takes your list of habits, turns it into a long string of text (JSON), 
-  //and tucks it away in AsyncStorage under the label @habit_tracker_data.
-    const saveHabits = async () => {
+  const saveHabits = async () => {
     try {
-      const dataToSave = {
-        habits,
-        date: new Date().toDateString()
-      };
+      const dataToSave = { habits, date: new Date().toDateString() };
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(dataToSave));
-      //Save this data under the name @habit_tracker_data
     } catch (error) {
-      console.error('Error saving habits:', error);
+      console.error("Error saving habits:", error);
     }
   };
 
-  // Function: Toggle habit completion status
   const toggleHabit = (id) => {
-    setHabits(prevHabits =>
-      prevHabits.map(habit =>
-        habit.id === id
-          ? { ...habit, completed: !habit.completed }
-          : habit
-      )
+    setHabits((prev) =>
+      prev.map((habit) => (habit.id === id ? { ...habit, completed: !habit.completed } : habit))
     );
   };
 
-  // Calculate completion percentage
-  const completedCount = habits.filter(h => h.completed).length;
-  const percentage = Math.round((completedCount / habits.length) * 100);
+  const addHabit = () => {
+    const name = newHabitName.trim();
+    const description = newHabitDesc.trim();
+
+    if (!name) {
+      Alert.alert("Missing name", "Please enter a habit name.");
+      return;
+    }
+
+    // Basic unique id
+    const id = `${Date.now()}`;
+
+    const newHabit = {
+      id,
+      name,
+      description: description || "No description",
+      completed: false,
+    };
+
+    setHabits((prev) => [...prev, newHabit]);
+    setNewHabitName("");
+    setNewHabitDesc("");
+  };
+
+  const removeHabit = (id) => {
+    const habit = habits.find((h) => h.id === id);
+
+    Alert.alert(
+      "Remove habit?",
+      habit ? `Delete "${habit.name}" from your list?` : "Delete this habit?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => setHabits((prev) => prev.filter((h) => h.id !== id)),
+        },
+      ]
+    );
+  };
+
+  const clearAllHabits = () => {
+    Alert.alert(
+      "Reset habits?",
+      "This clears your list and restores the default habits.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: async () => {
+            setHabits(INITIAL_HABITS);
+            await AsyncStorage.removeItem(STORAGE_KEY);
+          },
+        },
+      ]
+    );
+  };
+
+  const completedCount = useMemo(() => habits.filter((h) => h.completed).length, [habits]);
+  const percentage = habits.length === 0 ? 0 : Math.round((completedCount / habits.length) * 100);
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle="light-content" />
-      
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Habit Tracker</Text>
-        <Text style={styles.headerDate}>{currentDate}</Text>
-        <Text style={styles.headerProgress}>
-          {completedCount} / {habits.length} completed ({percentage}%)
-        </Text>
-      </View>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    >
+      <View style={styles.container}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Habit Tracker</Text>
+          <Text style={styles.headerDate}>{currentDate}</Text>
+          <Text style={styles.headerProgress}>
+            {completedCount} / {habits.length} completed ({percentage}%)
+          </Text>
 
-      {/* Habit List */}
-      <ScrollView style={styles.habitList}>
-        {habits.map(habit => (
-          <HabitItem
-            key={habit.id}
-            habit={habit}
-            onToggle={() => toggleHabit(habit.id)}
-          />
-        ))}
-      </ScrollView>
-    </View>
+          <View style={styles.headerButtonsRow}>
+            <TouchableOpacity
+              style={styles.smallHeaderBtn}
+              onPress={() => setShowManager((s) => !s)}
+            >
+              <Text style={styles.smallHeaderBtnText}>
+                {showManager ? "Hide Manager" : "Manage Habits"}
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.smallHeaderBtn, styles.dangerBtn]} onPress={clearAllHabits}>
+              <Text style={styles.smallHeaderBtnText}>Reset</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <ScrollView style={styles.habitList} keyboardShouldPersistTaps="handled">
+          {/* Habit Manager */}
+          {showManager && (
+            <View style={styles.managerCard}>
+              <Text style={styles.managerTitle}>Add a Habit</Text>
+
+              <TextInput
+                style={styles.input}
+                placeholder="Habit name (e.g., Journal)"
+                value={newHabitName}
+                onChangeText={setNewHabitName}
+              />
+              <TextInput
+                style={[styles.input, styles.inputMultiline]}
+                placeholder="Description (optional)"
+                value={newHabitDesc}
+                onChangeText={setNewHabitDesc}
+                multiline
+              />
+
+              <TouchableOpacity style={styles.addBtn} onPress={addHabit}>
+                <Text style={styles.addBtnText}>+ Add Habit</Text>
+              </TouchableOpacity>
+
+              <Text style={styles.managerHint}>
+                Tip: Use the 🗑 button to remove a habit.
+              </Text>
+            </View>
+          )}
+
+          {/* Habit List */}
+          {habits.length === 0 ? (
+            <Text style={styles.emptyText}>No habits yet. Add one above.</Text>
+          ) : (
+            habits.map((habit) => (
+              <HabitItem
+                key={habit.id}
+                habit={habit}
+                onToggle={() => toggleHabit(habit.id)}
+                onRemove={() => removeHabit(habit.id)}
+              />
+            ))
+          )}
+        </ScrollView>
+      </View>
+    </KeyboardAvoidingView>
   );
 }
 
-// Reusable Habit Item Component
-function HabitItem({ habit, onToggle }) {
+function HabitItem({ habit, onToggle, onRemove }) {
   return (
-    <View style={[
-      styles.habitItem,
-      habit.completed && styles.habitItemCompleted
-    ]}>
-      <View style={styles.habitInfo}>
-        <Text style={[
-          styles.habitName,
-          habit.completed && styles.habitNameCompleted
-        ]}>
+    <View style={[styles.habitItem, habit.completed && styles.habitItemCompleted]}>
+      <TouchableOpacity style={styles.habitInfo} onPress={onToggle} activeOpacity={0.8}>
+        <Text style={[styles.habitName, habit.completed && styles.habitNameCompleted]}>
           {habit.name}
         </Text>
-        <Text style={styles.habitDescription}>
-          {habit.description}
-        </Text>
-      </View>
-      
-      {/* Toggle Button */}
-      <TouchableOpacity
-        style={[
-          styles.toggleButton,
-          habit.completed && styles.toggleButtonActive
-        ]}
-        onPress={onToggle}
-      >
-        <View style={[
-          styles.toggleCircle,
-          habit.completed && styles.toggleCircleActive
-        ]} />
+        <Text style={styles.habitDescription}>{habit.description}</Text>
       </TouchableOpacity>
-  
+
+      <View style={styles.rightControls}>
+        {/* Toggle */}
+        <TouchableOpacity
+          style={[styles.toggleButton, habit.completed && styles.toggleButtonActive]}
+          onPress={onToggle}
+          activeOpacity={0.8}
+        >
+          <View style={[styles.toggleCircle, habit.completed && styles.toggleCircleActive]} />
+        </TouchableOpacity>
+
+        {/* Remove */}
+        <TouchableOpacity style={styles.trashBtn} onPress={onRemove} activeOpacity={0.8}>
+          <Text style={styles.trashText}>🗑</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
 
-/*Summary for your notes:
-State (useState): The app’s short-term memory (what’s happening right now).
-AsyncStorage: The app’s long-term memory (saving to the phone's "hard drive").
-Props: Passing information from the main App down to the individual Habit items.
-Mapping: Taking a list of data and turning it into a list of visual items on the screen.
-*/
-
-// Styles
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
+  container: { flex: 1, backgroundColor: "#f5f5f5" },
+
+  header: { backgroundColor: "#061603", padding: 30, paddingTop: 60 },
+  headerTitle: { fontSize: 28, fontWeight: "bold", color: "white", marginBottom: 5 },
+  headerDate: { fontSize: 16, color: "rgba(255,255,255,0.9)", marginBottom: 10 },
+  headerProgress: { fontSize: 14, color: "rgba(255,255,255,0.8)" },
+
+  headerButtonsRow: { flexDirection: "row", gap: 10, marginTop: 14 },
+  smallHeaderBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.14)",
   },
-  header: {
-    backgroundColor: '#061603',
-    padding: 30,
-    paddingTop: 60,
+  dangerBtn: { backgroundColor: "rgba(255, 0, 0, 0.22)" },
+  smallHeaderBtnText: { color: "white", fontWeight: "600" },
+
+  habitList: { flex: 1, padding: 20 },
+
+  managerCard: {
+    backgroundColor: "white",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 18,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 5,
-  },
-  headerDate: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.9)',
+  managerTitle: { fontSize: 18, fontWeight: "700", marginBottom: 10, color: "#222" },
+  input: {
+    backgroundColor: "#f2f2f2",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     marginBottom: 10,
   },
-  headerProgress: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.8)',
-  },
-  habitList: {
-    flex: 1,
-    padding: 20,
-  },
+  inputMultiline: { minHeight: 60, textAlignVertical: "top" },
+  addBtn: { backgroundColor: "#4caf50", borderRadius: 10, paddingVertical: 12, alignItems: "center" },
+  addBtnText: { color: "white", fontWeight: "700" },
+  managerHint: { marginTop: 10, color: "#666", fontSize: 12 },
+
+  emptyText: { textAlign: "center", color: "#666", marginTop: 30 },
+
   habitItem: {
-    backgroundColor: 'white',
+    backgroundColor: "white",
     borderRadius: 12,
-    padding: 20,
+    padding: 16,
     marginBottom: 15,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    shadowColor: '#000',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
-  habitItemCompleted: {
-    backgroundColor: '#e8f5e9',
-  },
-  habitInfo: {
-    flex: 1,
-  },
-  habitName: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginBottom: 5,
-  },
-  habitNameCompleted: {
-    textDecorationLine: 'line-through',
-    color: '#4caf50',
-  },
-  habitDescription: {
-    fontSize: 14,
-    color: '#666',
-  },
+  habitItemCompleted: { backgroundColor: "#e8f5e9" },
+  habitInfo: { flex: 1, paddingRight: 10 },
+
+  habitName: { fontSize: 18, fontWeight: "600", color: "#333", marginBottom: 5 },
+  habitNameCompleted: { textDecorationLine: "line-through", color: "#4caf50" },
+  habitDescription: { fontSize: 14, color: "#666" },
+
+  rightControls: { flexDirection: "row", alignItems: "center", gap: 12 },
+
   toggleButton: {
     width: 60,
     height: 30,
-    backgroundColor: '#ccc',
+    backgroundColor: "#ccc",
     borderRadius: 15,
-    justifyContent: 'center',
+    justifyContent: "center",
     padding: 3,
   },
-  toggleButtonActive: {
-    backgroundColor: '#4caf50',
-  },
-  toggleCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'white',
-  },
-  toggleCircleActive: {
-    alignSelf: 'flex-end',
-  },
+  toggleButtonActive: { backgroundColor: "#4caf50" },
+  toggleCircle: { width: 24, height: 24, borderRadius: 12, backgroundColor: "white" },
+  toggleCircleActive: { alignSelf: "flex-end" },
+
+  trashBtn: { padding: 6, borderRadius: 8, backgroundColor: "#f2f2f2" },
+  trashText: { fontSize: 16 },
 });
